@@ -27,7 +27,7 @@ jobs:
           TARGET_USER_OR_ORG: kkaran13                 # replace with your username/org
           CONTENT_FILE: sample.md                      # the markdown file to push
           FILENAME: README.md                          # the target filename in repos
-          IS_ORG: "true"                               # "true" for org, "false" for personal account
+          IS_ORG: "false"                               # "true" for org, "false" for personal account
         run: |
           python <<'EOF'
           import os, requests, base64, logging
