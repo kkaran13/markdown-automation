@@ -2,8 +2,8 @@ name: Update Markdown in All Repositories
 
 on:
   workflow_dispatch:  # manual trigger
-  schedule:
-    - cron: "0 6 * * 1"  # optional: every Monday 6 AM UTC
+#   schedule:
+#     - cron: "0 6 * * 1"  # optional: every Monday 6 AM UTC
 
 jobs:
   markdown:
@@ -76,7 +76,7 @@ jobs:
           def get_branches(repo):
               r = requests.get(f"{api}/repos/{target}/{repo}/branches", headers=headers)
               if r.status_code != 200:
-                  logging.warning(f"⚠️  Failed to fetch branches for {repo}: {r.status_code}")
+                  logging.warning(f" Failed to fetch branches for {repo}: {r.status_code}")
                   return []
               return [b["name"] for b in r.json()]
 
@@ -96,9 +96,9 @@ jobs:
 
               res = requests.put(url, headers=headers, json=data)
               if res.status_code in (200, 201):
-                  logging.info(f"✅ {repo}:{branch} updated successfully")
+                  logging.info(f" {repo}:{branch} updated successfully")
               else:
-                  logging.error(f"❌ {repo}:{branch} failed ({res.status_code})")
+                  logging.error(f" {repo}:{branch} failed ({res.status_code})")
 
           # --- Process all repos and branches ---
           for repo in repos:
