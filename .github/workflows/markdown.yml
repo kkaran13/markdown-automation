@@ -26,7 +26,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PERSONAL_TOKEN }}  # stored in repo secrets
           TARGET_USER_OR_ORG: kkaran13                 # replace with your username/org
           CONTENT_FILE: sample.md                      # the markdown file to push
-          FILENAME: README.md                          # the target filename in repos
+          FILENAME: DEPLOYMENT_DOCUMENT.md             # the target filename in repos
           IS_ORG: "false"                               # "true" for org, "false" for personal account
         run: |
           python <<'EOF'
