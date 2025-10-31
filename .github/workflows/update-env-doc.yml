@@ -1,0 +1,151 @@
+name: Scan and Update Environment Documentation
+
+on:
+  workflow_dispatch: # manual trigger
+  # schedule:
+  #   - cron: "0 6 * * 1"  # optional: every Monday 6 AM UTC
+
+jobs:
+  env-doc:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Scan for Environment Variables and Generate Markdown
+        run: |
+          python <<'EOF'
+          import re
+          from pathlib import Path
+
+          PATTERNS = [
+              r'getenv\s*\(\s*[\'"]([A-Z0-9_]+)[\'"]\s*\)',
+              r'environ\s*\[\s*[\'"]([A-Z0-9_]+)[\'"]\s*\]',
+              r'process\.env\.([A-Z0-9_]+)',
+              r'process\.env\s*\[\s*[\'"]([A-Z0-9_]+)[\'"]\s*\]',
+              r'\$\{?([A-Z0-9_]+)\}?',
+              r'Environment\.GetEnvironmentVariable\s*\(\s*[\'"]([A-Z0-9_]+)[\'"]\s*\)',
+              r'^([A-Z0-9_]+)\s*='
+          ]
+
+          def scan_repo_for_env_vars(repo_path="."):
+              env_vars = set()
+              for file in Path(repo_path).rglob("*.*"):
+                  if file.suffix.lower() in {".jpg", ".png", ".pdf", ".zip", ".exe"}:
+                      continue
+                  try:
+                      content = file.read_text(encoding="utf-8", errors="ignore")
+                  except Exception:
+                      continue
+                  for pattern in PATTERNS:
+                      for match in re.findall(pattern, content):
+                          if re.match(r"^[A-Z_][A-Z0-9_]*$", match):
+                              env_vars.add(match)
+              return sorted(env_vars)
+
+          env_vars = scan_repo_for_env_vars(".")
+          with open("DEPLOYMENT_DOCUMENT.md", "w", encoding="utf-8") as f:
+              f.write("# 🧩 Environment Variables Used in Repository\n\n")
+              f.write("This document is auto-generated from a GitHub Action.\n\n")
+              if env_vars:
+                  for var in env_vars:
+                      f.write(f"- `{var}`\n")
+                  f.write(f"\n✅ Total unique environment variables: {len(env_vars)}\n")
+              else:
+                  f.write("No environment variables detected.\n")
+          EOF
+
+      - name: Push Markdown to All Repositories
+        env:
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_TOKEN }}  # your PAT with repo access
+          TARGET_USER_OR_ORG: kkaran13                 # replace with your username/org
+          CONTENT_FILE: DEPLOYMENT_DOCUMENT.md         # generated markdown file
+          FILENAME: DEPLOYMENT_DOCUMENT.md             # filename to push
+          IS_ORG: "false"                              # set to "true" for organization
+        run: |
+          python <<'EOF'
+          import os, requests, base64, logging
+
+          logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+          token = os.getenv("GITHUB_TOKEN")
+          target = os.getenv("TARGET_USER_OR_ORG")
+          content_file = os.getenv("CONTENT_FILE")
+          filename = os.getenv("FILENAME")
+          is_org = os.getenv("IS_ORG", "false").lower() == "true"
+
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github.v3+json"
+          }
+          api = "https://api.github.com"
+
+          # --- Load markdown content ---
+          if not os.path.exists(content_file):
+              raise FileNotFoundError(f"Markdown source file not found: {content_file}")
+          with open(content_file, "r", encoding="utf-8") as f:
+              content = f.read()
+          content_b64 = base64.b64encode(content.encode()).decode()
+
+          # --- Fetch all repositories ---
+          repos = []
+          page = 1
+          while True:
+              if is_org:
+                  url = f"{api}/orgs/{target}/repos?per_page=100&page={page}"
+              else:
+                  url = f"{api}/user/repos?per_page=100&page={page}"
+              r = requests.get(url, headers=headers)
+              if r.status_code != 200:
+                  raise Exception(f"Failed to fetch repos: {r.status_code} {r.text}")
+              data = r.json()
+              if not data:
+                  break
+              repos.extend([repo["name"] for repo in data])
+              page += 1
+
+          logging.info(f"Found {len(repos)} repositories for {target}")
+
+          # --- Helper: get branches ---
+          def get_branches(repo):
+              r = requests.get(f"{api}/repos/{target}/{repo}/branches", headers=headers)
+              if r.status_code != 200:
+                  logging.warning(f" Failed to fetch branches for {repo}: {r.status_code}")
+                  return []
+              return [b["name"] for b in r.json()]
+
+          # --- Helper: update file in branch ---
+          def update_file(repo, branch):
+              url = f"{api}/repos/{target}/{repo}/contents/{filename}?ref={branch}"
+              r = requests.get(url, headers=headers)
+              sha = r.json().get("sha") if r.status_code == 200 else None
+
+              data = {
+                  "message": f"Update {filename} [Automated]",
+                  "content": content_b64,
+                  "branch": branch,
+              }
+              if sha:
+                  data["sha"] = sha
+
+              res = requests.put(url, headers=headers, json=data)
+              if res.status_code in (200, 201):
+                  logging.info(f" {repo}:{branch} updated successfully")
+              else:
+                  logging.error(f" {repo}:{branch} failed ({res.status_code})")
+
+          # --- Process all repos and branches ---
+          for repo in repos:
+              branches = get_branches(repo)
+              for branch in branches:
+                  update_file(repo, branch)
+          EOF
