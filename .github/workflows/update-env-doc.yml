@@ -1,15 +1,15 @@
-name: Scan and Push Environment Variable Report
+name: Scan and Push Environment Variables Report
 
 on:
   workflow_dispatch:
     inputs:
-      SCAN_BRANCH:
+      branch:
         description: "Branch name to scan for environment variables"
         required: true
-        default: "main"
+        default: "dev"   # default branch if none entered
 
 jobs:
-  scan:
+  scan-and-push:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,62 +24,46 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Run Environment Variable Scanner
+      - name: Run Environment Variable Scanner and Publisher
         env:
           GITHUB_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
-          TARGET_USER_OR_ORG: kkaran13
-          IS_ORG: "false"                       # set "true" for org, "false" for personal
-          SCAN_BRANCH: ${{ github.event.inputs.SCAN_BRANCH }}
+          TARGET_USER_OR_ORG: kkaran13           # change to your username/org
+          IS_ORG: "false"                        # set "true" for org
+          TARGET_BRANCH: ${{ github.event.inputs.branch }}
         run: |
           python <<'EOF'
-          import os, re, requests, base64, logging
+          import os, re, base64, requests, logging
+          from pathlib import Path
 
           logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
           token = os.getenv("GITHUB_TOKEN")
           target = os.getenv("TARGET_USER_OR_ORG")
           is_org = os.getenv("IS_ORG", "false").lower() == "true"
-          scan_branch = os.getenv("SCAN_BRANCH", "dev")
+          target_branch = os.getenv("TARGET_BRANCH", "dev")
+          api = "https://api.github.com"
 
           headers = {
               "Authorization": f"Bearer {token}",
               "Accept": "application/vnd.github.v3+json"
           }
-          api = "https://api.github.com"
 
-          # --- Get Repositories ---
-          logging.info(f"Fetching repositories for {target}...")
-          repos, page = [], 1
-          while True:
-              url = f"{api}/orgs/{target}/repos?per_page=100&page={page}" if is_org else f"{api}/user/repos?per_page=100&page={page}"
-              r = requests.get(url, headers=headers)
-              if r.status_code != 200:
-                  logging.error(f"Failed to fetch repos: {r.status_code} {r.text}")
-                  break
-              data = r.json()
-              if not data:
-                  break
-              repos.extend([repo["name"] for repo in data])
-              page += 1
-          logging.info(f"Found {len(repos)} repositories.")
+          def fetch_repos():
+              repos = []
+              page = 1
+              while True:
+                  url = f"{api}/orgs/{target}/repos?per_page=100&page={page}" if is_org else f"{api}/user/repos?per_page=100&page={page}"
+                  r = requests.get(url, headers=headers)
+                  if r.status_code != 200:
+                      logging.error(f"Failed to fetch repos (HTTP {r.status_code}): {r.text}")
+                      break
+                  data = r.json()
+                  if not data:
+                      break
+                  repos.extend([repo["name"] for repo in data])
+                  page += 1
+              return repos
 
-          # --- Regex Patterns for Env Var Detection ---
-          env_patterns = [
-              r"os\.environ\.get\(['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\)",
-              r"os\.getenv\(['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\)",
-              r"process\.env\.([A-Za-z_][A-Za-z0-9_]*)",
-              r"System\.getenv\(['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\)",
-              r"\${([A-Za-z_][A-Za-z0-9_]*)}",
-              r"^([A-Za-z_][A-Za-z0-9_]*)=.*$",
-          ]
-
-          def find_env_vars_in_text(text):
-              envs = set()
-              for pattern in env_patterns:
-                  envs.update(re.findall(pattern, text, re.MULTILINE))
-              return envs
-
-          # --- Helper: get branches ---
           def get_branches(repo):
               r = requests.get(f"{api}/repos/{target}/{repo}/branches", headers=headers)
               if r.status_code != 200:
@@ -87,27 +71,45 @@ jobs:
                   return []
               return [b["name"] for b in r.json()]
 
-          # --- Helper: get repo tree ---
-          def get_repo_tree(repo, branch):
-              url = f"{api}/repos/{target}/{repo}/git/trees/{branch}?recursive=1"
-              r = requests.get(url, headers=headers)
-              if r.status_code != 200:
-                  logging.warning(f"Failed to get file tree for {repo}:{branch}")
-                  return []
-              return [item["path"] for item in r.json().get("tree", []) if item["type"] == "blob"]
+          def get_repo_files(repo, branch):
+              files = []
+              def walk(path=""):
+                  url = f"{api}/repos/{target}/{repo}/contents/{path}?ref={branch}"
+                  r = requests.get(url, headers=headers)
+                  if r.status_code != 200:
+                      return
+                  for item in r.json():
+                      if item["type"] == "file":
+                          files.append(item["path"])
+                      elif item["type"] == "dir":
+                          walk(item["path"])
+              walk()
+              return files
 
-          # --- Helper: get file content ---
-          def get_file_content(repo, path, branch):
+          def download_file(repo, branch, path):
               url = f"{api}/repos/{target}/{repo}/contents/{path}?ref={branch}"
               r = requests.get(url, headers=headers)
-              if r.status_code != 200:
-                  return ""
-              data = r.json()
-              if "content" in data:
-                  return base64.b64decode(data["content"]).decode(errors="ignore")
+              if r.status_code == 200:
+                  return base64.b64decode(r.json().get("content", "").encode()).decode(errors="ignore")
               return ""
 
-          # --- Helper: update file ---
+          def find_env_vars(content):
+              patterns = [
+                  r"os\.environ\.get\(['\"]([^'\"]+)['\"]\)",
+                  r"os\.getenv\(['\"]([^'\"]+)['\"]\)",
+                  r"process\.env\.([A-Z0-9_]+)",
+                  r"System\.getenv\(['\"]([^'\"]+)['\"]\)",
+                  r"\${([^}]+)}",
+                  r"export\s+([A-Z0-9_]+)=",
+                  r"([A-Z0-9_]+)\s*=\s*['\"]?.*['\"]?"
+              ]
+              found = set()
+              for pat in patterns:
+                  for match in re.findall(pat, content):
+                      if len(match) < 60:
+                          found.add(match.strip())
+              return found
+
           def update_file(repo, branch, filename, content):
               content_b64 = base64.b64encode(content.encode()).decode()
               url = f"{api}/repos/{target}/{repo}/contents/{filename}?ref={branch}"
@@ -126,38 +128,38 @@ jobs:
               if res.status_code in (200, 201):
                   logging.info(f"✅ {repo}:{branch} updated successfully.")
               else:
-                  logging.error(f"❌ {repo}:{branch} update failed ({res.status_code}).")
+                  logging.error(f"❌ {repo}:{branch} failed to update ({res.status_code}).")
 
-          # --- Main Scan Loop ---
+          logging.info(f"🚀 Scanning all repos for branch '{target_branch}'...")
+          repos = fetch_repos()
+          logging.info(f"Found {len(repos)} repositories for {target}.")
+
           for repo in repos:
-              logging.info(f"🔍 Scanning {repo} [branch: {scan_branch}]...")
               branches = get_branches(repo)
-              if scan_branch not in branches:
-                  logging.warning(f"Repo {repo} has no branch '{scan_branch}'. Skipping.")
+              if target_branch not in branches:
+                  logging.warning(f"⚠️  Skipping {repo}, branch '{target_branch}' not found.")
                   continue
 
-              files = get_repo_tree(repo, scan_branch)
-              env_vars = set()
-              for path in files:
-                  if any(path.endswith(ext) for ext in [".py", ".js", ".ts", ".java", ".env", ".go", ".sh", ".yaml", ".yml"]):
-                      text = get_file_content(repo, path, scan_branch)
-                      env_vars |= find_env_vars_in_text(text)
+              files = get_repo_files(repo, target_branch)
+              all_envs = set()
 
-              if not env_vars:
-                  logging.info(f"No env vars found in {repo}.")
+              for f in files:
+                  if any(f.endswith(ext) for ext in [".py", ".js", ".ts", ".java", ".go", ".env", ".sh", ".yml", ".yaml"]):
+                      content = download_file(repo, target_branch, f)
+                      all_envs |= find_env_vars(content)
+
+              if not all_envs:
+                  logging.info(f"ℹ️ No env vars found in {repo}.")
                   continue
 
-              # --- Generate Markdown ---
-              report = f"# Environment Variables Used in {repo}\n\n"
-              report += f"Scanned Branch: `{scan_branch}`\n\n"
-              report += "## Detected Variables\n\n"
-              for var in sorted(env_vars):
-                  report += f"- `{var}`\n"
-              report += "\n> Auto-generated by GitHub Actions.\n"
+              markdown = f"# Environment Variables Used in {repo}\n\n"
+              markdown += f"Scanned branch: `{target_branch}`\n\n"
+              markdown += "## Variables Found\n"
+              markdown += "\n".join(f"- `{v}`" for v in sorted(all_envs))
 
-              # Push report to all branches
-              for branch in branches:
-                  update_file(repo, branch, "DEPLOYMENT_DOCUMENT.md", report)
+              # push report to all branches
+              for b in branches:
+                  update_file(repo, b, "DEPLOYMENT_DOCUMENT.md", markdown)
 
-          logging.info("🎯 Completed scanning all repositories.")
+          logging.info("✅ Completed scanning and publishing.")
           EOF
