@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, re, ast, glob, json, logging, sys
+import os, re, ast, glob, json, logging, sys, datetime
 from pathlib import Path
 
 # Configure logging
@@ -22,7 +22,6 @@ patterns = {
         r"settings\(['\"]([^'\"]+)['\"]",                          # settings("VAR")
         r"env\(['\"]([^'\"]+)['\"]",                               # env("VAR")
         r"Environment\.GetEnvironmentVariable\(['\"]([^'\"]+)['\"]", # Environment.GetEnvironmentVariable("VAR")
-        r"os\.getenv\(['\"]([^'\"]+)['\"]",                        # os.getenv("VAR")
         r"dotenv\.get_key\([^,]+,\s*['\"]([^'\"]+)['\"]",          # dotenv.get_key(file, "VAR")
     ],
     "javascript": [
@@ -96,8 +95,13 @@ def extract_python_envs(path):
                 func = getattr(node.func, "attr", "")
                 if func in ("getenv", "get", "get_key", "getenv"):
                     # Look at first argument
-                    if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-                        envs.add(node.args[0].value)
+                    if node.args and len(node.args) > 0:
+                        arg = node.args[0]
+                        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                            envs.add(arg.value)
+                        # Handle older Python versions before 3.8
+                        elif hasattr(arg, 's') and isinstance(arg.s, str):
+                            envs.add(arg.s)
                     
             # Method 2: os.environ["VAR"] and similar access
             elif isinstance(node, ast.Subscript):
@@ -107,10 +111,10 @@ def extract_python_envs(path):
                     slice_value = None
                     if isinstance(node.slice, ast.Constant):  # Python 3.8+
                         slice_value = node.slice.value
-                    elif hasattr(node.slice, "value") and isinstance(node.slice.value, ast.Constant):  # Python < 3.8
-                        slice_value = node.slice.value.value
-                    elif isinstance(node.slice, ast.Index) and hasattr(node.slice, "value"):  # Older Python versions
-                        if isinstance(node.slice.value, ast.Str):
+                    elif hasattr(node.slice, "value"):  # Python < 3.8
+                        if isinstance(node.slice.value, ast.Constant):
+                            slice_value = node.slice.value.value
+                        elif isinstance(node.slice.value, ast.Str):
                             slice_value = node.slice.value.s
                             
                     if isinstance(slice_value, str):
@@ -129,7 +133,7 @@ def extract_envs_from_text(text, lang):
             for match in matches:
                 # Filter out common false positives and very short vars
                 if isinstance(match, str) and len(match) > 1:
-                    if match not in ['true', 'false', 'null', 'undefined', 'NaN']:
+                    if match.lower() not in ['true', 'false', 'null', 'undefined', 'nan']:
                         found.add(match)
         except re.error as e:
             logger.warning(f"Regex error with pattern {p}: {e}")
@@ -200,23 +204,125 @@ def scan_repo(repo_dir):
     }
     
     # Scan all files recursively
-    for path in
+    for path in glob.glob(f"{repo_dir}/**/*", recursive=True):
+        # Skip directories
+        if os.path.isdir(path):
+            # Check if it's a directory we should skip
+            if Path(path).name in skip_dirs:
+                continue
+            continue
+            
+        # Skip binary files by extension
+        if Path(path).suffix.lower() in binary_exts:
+            continue
+            
+        # Skip binary files by content check
+        if is_binary_file(path):
+            continue
+
+        # Get relative path for display
+        try:
+            rel_path = path
+            # Try to make the path relative to current directory
+            try:
+                rel_path = str(Path(path).relative_to(repo_dir))
+            except:
+                pass  # Keep the original path if this fails
+            
+            # Read file content
+            content = ""
+            try:
+                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    file_count += 1
+            except Exception as e:
+                logger.warning(f"Could not read file {rel_path}: {e}")
+                continue
+                
+            if not content.strip():
+                continue
+                
+            # Determine language for specific patterns
+            lang = get_file_lang(path)
+            envs = set()
+            
+            # Use AST parsing for Python files (more accurate)
+            if lang == "python":
+                py_envs = extract_python_envs(path)
+                if py_envs:
+                    envs |= py_envs
+                    
+            # Use regex patterns based on language
+            if lang:
+                regex_envs = extract_envs_from_text(content, lang)
+                if regex_envs:
+                    envs |= regex_envs
+                    
+            # Generic patterns for any file - for .env files or config files
+            if ".env" in path.lower() or "config" in path.lower():
+                # Apply shell patterns as these often contain env vars
+                shell_envs = extract_envs_from_text(content, "shell")
+                if shell_envs:
+                    envs |= shell_envs
+            
+            # Filter out common false positives and non-env-var names
+            filtered_envs = set()
+            for env in envs:
+                # Skip very short names (likely false positives)
+                if len(env) < 2:
+                    continue
+                    
+                # Skip common programming words that aren't likely env vars
+                if env.lower() in {'self', 'this', 'true', 'false', 'null', 'none', 
+                                  'undefined', 'nan', 'inf', 'encoding', 'format'}:
+                    continue
+                    
+                filtered_envs.add(env)
+            
+            if filtered_envs:
+                env_var_count += len(filtered_envs)
+                report[rel_path] = sorted(filtered_envs)
+                
+        except Exception as e:
+            logger.error(f"Error processing {path}: {e}")
+            
+    logger.info(f"Scan complete: {file_count} files scanned, {env_var_count} environment variables found")
+    return report
 
 def generate_markdown(report, branch):
-    md = ["# Environment Variables Report", f"Scanned Branch: **{branch}**", ""]
+    """Generate markdown report from scan results"""
+    repo_name = target_repo or "local-repository"
+    md = ["# Environment Variables Report", f"Repository: **{repo_name}**", f"Branch: **{branch}**", 
+          f"Scan Date: **{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**", ""]
+    
     if not report:
-        md.append("✅ No environment variables found.")
+        md.append("✅ No environment variables found in this repository.")
     else:
-        for file, vars_ in report.items():
-            md.append(f"## {file}")
-            for v in vars_:
-                md.append(f"- `{v}`")
+        total_vars = sum(len(vars_) for vars_ in report.values())
+        md.append(f"## Summary\n- Total variables: **{total_vars}**\n- Files: **{len(report)}**\n")
+        md.append("## Variables by File")
+        for file in sorted(report.keys()):
+            md.append(f"### {file}")
+            for var in sorted(report[file]):
+                md.append(f"- `{var}`")
             md.append("")
+    
     Path("DEPLOYMENT_DOCUMENT.md").write_text("\n".join(md))
-    logging.info("Report written to DEPLOYMENT_DOCUMENT.md")
+    logger.info(f"Report written to DEPLOYMENT_DOCUMENT.md")
+    return True
 
 if __name__ == "__main__":
-    branch = os.getenv("TARGET_BRANCH", "main")
-    logging.info(f"Scanning branch: {branch}")
-    result = scan_repo(repo_dir)
-    generate_markdown(result, branch)
+    try:
+        branch = os.getenv("TARGET_BRANCH", "main")
+        repo = os.getenv("TARGET_REPO", "local-repository")
+        
+        logger.info(f"Starting environment variable scan")
+        logger.info(f"Target repository: {repo}")
+        logger.info(f"Target branch: {branch}")
+        
+        result = scan_repo(repo_dir)
+        generate_markdown(result, branch)
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Error during scan: {e}")
+        sys.exit(1)
