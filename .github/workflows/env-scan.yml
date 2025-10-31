@@ -17,12 +17,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # First checkout the current repository with our scripts
+      - name: Checkout current repo with scripts
+        uses: actions/checkout@v4
+        
+      # Then checkout the target repository to scan in a separate directory
       - name: Checkout target repo
         uses: actions/checkout@v4
         with:
           repository: ${{ github.event.inputs.target_repo }}
           ref: ${{ github.event.inputs.target_branch }}
           token: ${{ secrets.PERSONAL_TOKEN }}
+          path: target_repo_to_scan
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,6 +42,7 @@ jobs:
         env:
           TARGET_REPO: ${{ github.event.inputs.target_repo }}
           TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+          SCAN_DIR: ./target_repo_to_scan
         run: python scripts/scan_envs.py
 
       - name: Push report to target repo branch
