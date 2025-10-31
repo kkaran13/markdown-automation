@@ -1,13 +1,9 @@
-# Environment Variables Used in markdown-automation
+# Environment Variables Report
+Scanned Branch: **main**
 
-Scanned branch: `main`
-
-## Variables Found
-- `([^`
-- `64`
-- `CONTENT_FILE`
-- `FILENAME`
-- `GITHUB_TOKEN`
-- `TARGET_USER_OR_ORG`
-- `{ github.event.inputs.branch`
-- `{ secrets.PERSONAL_TOKEN`
+## /home/runner/work/markdown-automation/markdown-automation/scripts/scan_envs.py
+- `TARGET_BRANCH`
+- `encoding`
+- `errors`
+- `format`
+- `main`
