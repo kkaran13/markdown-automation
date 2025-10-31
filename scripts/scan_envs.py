@@ -311,8 +311,65 @@ def get_all_vars_from_report(report):
         all_vars.update(file_vars)
     return all_vars
 
+# def generate_markdown(report, branch, existing_content=None):
+#     """Generate markdown report from scan results, comparing with existing content if provided"""
+#     repo_name = target_repo or "local-repository"
+    
+#     # Get all variables from the current scan
+#     all_current_vars = get_all_vars_from_report(report)
+    
+#     # If existing content is provided, extract variables from it
+#     existing_vars = set()
+#     if existing_content:
+#         existing_vars = extract_vars_from_md(existing_content)
+    
+#     # Find new variables that are not in the existing document
+#     new_vars = all_current_vars - existing_vars
+    
+#     # If no new variables and existing content exists, no need to update
+#     if not new_vars and existing_content:
+#         logger.info("No new environment variables found. Existing document is up to date.")
+#         # Create marker file indicating no update was needed
+#         with open("report_updated.txt", "w") as f:
+#             f.write("no_update")
+#         return False
+    
+#     # Create the markdown content
+#     md = ["# Environment Variables Report", f"Repository: **{repo_name}**", f"Branch: **{branch}**", 
+#           f"Scan Date: **{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**", ""]
+    
+#     if not report:
+#         md.append("✅ No environment variables found in this repository.")
+#     else:
+#         total_vars = sum(len(vars_) for vars_ in report.values())
+#         md.append(f"## Summary\n- Total variables: **{total_vars}**\n- Files: **{len(report)}**\n")
+        
+#         # If we're updating and there are new variables, indicate that
+#         if existing_content and new_vars:
+#             md.append(f"## New Variables Added\n")
+#             for var in sorted(new_vars):
+#                 md.append(f"- `{var}`")
+#             md.append("")
+        
+#         md.append("## Variables by File")
+#         for file in sorted(report.keys()):
+#             md.append(f"### {file}")
+#             for var in sorted(report[file]):
+#                 md.append(f"- `{var}`")
+#             md.append("")
+    
+#     Path("DEPLOYMENT_DOCUMENT.md").write_text("\n".join(md))
+#     logger.info(f"Report written to DEPLOYMENT_DOCUMENT.md")
+    
+#     # Create marker file indicating the report was updated
+#     with open("report_updated.txt", "w") as f:
+#         f.write("updated")
+    
+#     # Return True if document was updated (new document or had new variables)
+#     return True
+
 def generate_markdown(report, branch, existing_content=None):
-    """Generate markdown report from scan results, comparing with existing content if provided"""
+    """Generate markdown report from scan results, appending new variables to existing content if provided"""
     repo_name = target_repo or "local-repository"
     
     # Get all variables from the current scan
@@ -329,43 +386,60 @@ def generate_markdown(report, branch, existing_content=None):
     # If no new variables and existing content exists, no need to update
     if not new_vars and existing_content:
         logger.info("No new environment variables found. Existing document is up to date.")
-        # Create marker file indicating no update was needed
         with open("report_updated.txt", "w") as f:
             f.write("no_update")
         return False
-    
-    # Create the markdown content
-    md = ["# Environment Variables Report", f"Repository: **{repo_name}**", f"Branch: **{branch}**", 
-          f"Scan Date: **{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**", ""]
-    
+
+    # Create the markdown header and summary (for new or first-time creation)
+    md = [
+        "# Environment Variables Report",
+        f"Repository: **{repo_name}**",
+        f"Branch: **{branch}**",
+        f"Scan Date: **{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**",
+        ""
+    ]
+
     if not report:
         md.append("✅ No environment variables found in this repository.")
+        new_md_content = "\n".join(md)
     else:
         total_vars = sum(len(vars_) for vars_ in report.values())
         md.append(f"## Summary\n- Total variables: **{total_vars}**\n- Files: **{len(report)}**\n")
-        
-        # If we're updating and there are new variables, indicate that
-        if existing_content and new_vars:
-            md.append(f"## New Variables Added\n")
-            for var in sorted(new_vars):
-                md.append(f"- `{var}`")
-            md.append("")
-        
+
         md.append("## Variables by File")
         for file in sorted(report.keys()):
             md.append(f"### {file}")
             for var in sorted(report[file]):
                 md.append(f"- `{var}`")
             md.append("")
-    
-    Path("DEPLOYMENT_DOCUMENT.md").write_text("\n".join(md))
-    logger.info(f"Report written to DEPLOYMENT_DOCUMENT.md")
-    
+        
+        new_md_content = "\n".join(md)
+
+    output_path = Path("DEPLOYMENT_DOCUMENT.md")
+
+    # ✅ If an existing document exists, append new variables instead of overwriting
+    if existing_content and new_vars:
+        logger.info("Appending new environment variables to existing DEPLOYMENT_DOCUMENT.md")
+
+        append_section = [
+            "\n## Newly Detected Variables (Appended Automatically)\n",
+        ]
+        for var in sorted(new_vars):
+            append_section.append(f"- `{var}`")
+
+        updated_content = existing_content.strip() + "\n" + "\n".join(append_section) + "\n"
+        output_path.write_text(updated_content)
+
+    else:
+        # Create or fully rewrite document (first-time creation)
+        output_path.write_text(new_md_content)
+
+    logger.info("Report written to DEPLOYMENT_DOCUMENT.md")
+
     # Create marker file indicating the report was updated
     with open("report_updated.txt", "w") as f:
         f.write("updated")
-    
-    # Return True if document was updated (new document or had new variables)
+
     return True
 
 def check_existing_deployment_doc():
