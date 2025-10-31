@@ -6,10 +6,12 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("env-scanner")
 
-# Get target repository and branch from environment variables
+# Get target repository, branch, and scan directory from environment variables
 target_repo = os.getenv("TARGET_REPO", "")
 target_branch = os.getenv("TARGET_BRANCH", "main")
-repo_dir = os.getcwd()
+# Use SCAN_DIR if provided, otherwise use current directory
+repo_dir = os.getenv("SCAN_DIR", os.getcwd())
+logger.info(f"Using scan directory: {repo_dir}")
 report = {}
 
 # Language-specific environment access patterns - expanded for better coverage
