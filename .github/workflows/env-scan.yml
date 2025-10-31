@@ -43,6 +43,7 @@ jobs:
           TARGET_REPO: ${{ github.event.inputs.target_repo }}
           TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
           SCAN_DIR: ./target_repo_to_scan
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
         run: python scripts/scan_envs.py
 
       - name: Push report to target repo branch
@@ -61,6 +62,23 @@ jobs:
           target_branch = os.getenv("TARGET_BRANCH")
           filename = os.getenv("FILENAME")
           
+          # First check if we need to update the report
+          # Read marker file that scan_envs.py would create if report was updated
+          need_update = False
+          try:
+              with open("report_updated.txt", "r") as f:
+                  status = f.read().strip()
+                  if status == "updated":
+                      need_update = True
+                      logging.info("Report contains new variables, will update repository.")
+                  else:
+                      logging.info("No new variables found, skipping update.")
+                      exit(0)
+          except FileNotFoundError:
+              # If no marker file exists, assume we need to update
+              logging.info("No update marker found, will proceed with update.")
+              need_update = True
+              
           # Extract owner and repo name
           owner, repo_name = target_repo.split('/')
           
@@ -84,6 +102,9 @@ jobs:
           sha = None
           if r.status_code == 200:
               sha = r.json().get("sha")
+              if not need_update:
+                  logging.info(f"File exists but no update needed, skipping.")
+                  exit(0)
           elif r.status_code != 404:
               logging.error(f"Failed to check if file exists: {r.status_code} {r.text}")
               exit(1)

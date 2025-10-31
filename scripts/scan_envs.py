@@ -291,9 +291,50 @@ def scan_repo(repo_dir):
     logger.info(f"Scan complete: {file_count} files scanned, {env_var_count} environment variables found")
     return report
 
-def generate_markdown(report, branch):
-    """Generate markdown report from scan results"""
+def extract_vars_from_md(content):
+    """Extract environment variables from an existing markdown document"""
+    existing_vars = set()
+    
+    # Use regex to extract variables enclosed in backticks after bullet points
+    var_pattern = r'- `([^`]+)`'
+    matches = re.findall(var_pattern, content)
+    
+    for match in matches:
+        existing_vars.add(match)
+    
+    return existing_vars
+
+def get_all_vars_from_report(report):
+    """Get all environment variables from the report dictionary"""
+    all_vars = set()
+    for file_vars in report.values():
+        all_vars.update(file_vars)
+    return all_vars
+
+def generate_markdown(report, branch, existing_content=None):
+    """Generate markdown report from scan results, comparing with existing content if provided"""
     repo_name = target_repo or "local-repository"
+    
+    # Get all variables from the current scan
+    all_current_vars = get_all_vars_from_report(report)
+    
+    # If existing content is provided, extract variables from it
+    existing_vars = set()
+    if existing_content:
+        existing_vars = extract_vars_from_md(existing_content)
+    
+    # Find new variables that are not in the existing document
+    new_vars = all_current_vars - existing_vars
+    
+    # If no new variables and existing content exists, no need to update
+    if not new_vars and existing_content:
+        logger.info("No new environment variables found. Existing document is up to date.")
+        # Create marker file indicating no update was needed
+        with open("report_updated.txt", "w") as f:
+            f.write("no_update")
+        return False
+    
+    # Create the markdown content
     md = ["# Environment Variables Report", f"Repository: **{repo_name}**", f"Branch: **{branch}**", 
           f"Scan Date: **{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**", ""]
     
@@ -302,6 +343,14 @@ def generate_markdown(report, branch):
     else:
         total_vars = sum(len(vars_) for vars_ in report.values())
         md.append(f"## Summary\n- Total variables: **{total_vars}**\n- Files: **{len(report)}**\n")
+        
+        # If we're updating and there are new variables, indicate that
+        if existing_content and new_vars:
+            md.append(f"## New Variables Added\n")
+            for var in sorted(new_vars):
+                md.append(f"- `{var}`")
+            md.append("")
+        
         md.append("## Variables by File")
         for file in sorted(report.keys()):
             md.append(f"### {file}")
@@ -311,7 +360,56 @@ def generate_markdown(report, branch):
     
     Path("DEPLOYMENT_DOCUMENT.md").write_text("\n".join(md))
     logger.info(f"Report written to DEPLOYMENT_DOCUMENT.md")
+    
+    # Create marker file indicating the report was updated
+    with open("report_updated.txt", "w") as f:
+        f.write("updated")
+    
+    # Return True if document was updated (new document or had new variables)
     return True
+
+def check_existing_deployment_doc():
+    """Check if DEPLOYMENT_DOCUMENT.md exists in target repository and return its content if found"""
+    if not target_repo or not target_branch:
+        return None
+        
+    # Check if we're in a GitHub Actions environment
+    github_token = os.getenv("GITHUB_TOKEN")
+    if not github_token:
+        # We're likely running locally, check if file exists locally
+        deployment_doc_path = Path("DEPLOYMENT_DOCUMENT.md")
+        if deployment_doc_path.exists():
+            logger.info("Found existing DEPLOYMENT_DOCUMENT.md locally")
+            try:
+                with open(deployment_doc_path, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception as e:
+                logger.warning(f"Error reading local DEPLOYMENT_DOCUMENT.md: {e}")
+        return None
+        
+    # We're in GitHub Actions, check via API
+    try:
+        import requests
+        import base64
+        
+        api_url = f"https://api.github.com/repos/{target_repo}/contents/DEPLOYMENT_DOCUMENT.md?ref={target_branch}"
+        headers = {"Authorization": f"Bearer {github_token}"}
+        
+        response = requests.get(api_url, headers=headers)
+        if response.status_code == 200:
+            logger.info(f"Found existing DEPLOYMENT_DOCUMENT.md in {target_repo}:{target_branch}")
+            try:
+                content_b64 = response.json()["content"]
+                content = base64.b64decode(content_b64).decode("utf-8")
+                return content
+            except Exception as e:
+                logger.warning(f"Error decoding content from GitHub API: {e}")
+        else:
+            logger.info(f"No existing DEPLOYMENT_DOCUMENT.md found in {target_repo}:{target_branch}")
+    except Exception as e:
+        logger.warning(f"Error checking for existing document: {e}")
+        
+    return None
 
 if __name__ == "__main__":
     try:
@@ -322,8 +420,20 @@ if __name__ == "__main__":
         logger.info(f"Target repository: {repo}")
         logger.info(f"Target branch: {branch}")
         
+        # Check if DEPLOYMENT_DOCUMENT.md already exists
+        existing_content = check_existing_deployment_doc()
+        
+        # Scan repository for environment variables
         result = scan_repo(repo_dir)
-        generate_markdown(result, branch)
+        
+        # Generate markdown, comparing with existing content if available
+        was_updated = generate_markdown(result, branch, existing_content)
+        
+        if was_updated:
+            logger.info("Environment variables report updated with new variables.")
+        else:
+            logger.info("No changes needed to environment variables report.")
+        
         sys.exit(0)
     except Exception as e:
         logger.error(f"Error during scan: {e}")
