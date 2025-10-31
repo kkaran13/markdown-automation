@@ -6,12 +6,9 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 repo_dir = os.getcwd()
 report = {}
+
+# Language-specific environment access patterns
 patterns = {
-    "generic": [
-        r"export\s+([A-Za-z_][A-Za-z0-9_]*)=",
-        r"\${([A-Za-z_][A-Za-z0-9_]*)}",
-        r"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*['\"].*['\"]",
-    ],
     "python": [
         r"os\.environ\.get\(['\"]([^'\"]+)['\"]\)",
         r"os\.getenv\(['\"]([^'\"]+)['\"]\)",
@@ -22,6 +19,10 @@ patterns = {
     ],
     "java": [
         r"System\.getenv\(['\"]([^'\"]+)['\"]\)",
+    ],
+    "shell": [
+        r"export\s+([A-Za-z_][A-Za-z0-9_]*)=",
+        r"\${([A-Za-z_][A-Za-z0-9_]*)}",
     ],
 }
 
@@ -48,7 +49,7 @@ def extract_python_envs(path):
 
 def extract_envs_from_text(text, lang):
     found = set()
-    for p in patterns.get(lang, []) + patterns["generic"]:
+    for p in patterns.get(lang, []):
         found |= set(re.findall(p, text))
     return found
 
@@ -74,9 +75,7 @@ def scan_repo(repo_dir):
         elif ext == ".java":
             envs |= extract_envs_from_text(text, "java")
         elif ext in [".sh", ".bash", ".env"]:
-            envs |= extract_envs_from_text(text, "generic")
-        else:
-            envs |= extract_envs_from_text(text, "generic")
+            envs |= extract_envs_from_text(text, "shell")
 
         if envs:
             report[path] = sorted(envs)
@@ -93,7 +92,7 @@ def generate_markdown(report, branch):
                 md.append(f"- `{v}`")
             md.append("")
     Path("DEPLOYMENT_DOCUMENT.md").write_text("\n".join(md))
-    logging.info(f"Report written to DEPLOYMENT_DOCUMENT.md")
+    logging.info("Report written to DEPLOYMENT_DOCUMENT.md")
 
 if __name__ == "__main__":
     branch = os.getenv("TARGET_BRANCH", "main")
