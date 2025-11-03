@@ -372,6 +372,7 @@ def generate_markdown(report, branch, existing_content=None):
         if new_vars:
             append_section = [
                 "\n## Newly Detected Variables (Appended Automatically)\n",
+                f"Scan Date: **{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**"
             ]
             file_var_map = {}
             for file, vars_in_file in report.items():
