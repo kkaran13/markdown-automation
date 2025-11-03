@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import os, re, ast, glob, json, logging, sys, datetime
 from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
+scan_date = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("env-scanner")
@@ -345,7 +348,7 @@ def generate_markdown(report, branch, existing_content=None):
             "# Environment Variables Report",
             f"Repository: **{repo_name}**",
             f"Branch: **{branch}**",
-            f"Scan Date: **{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**",
+            f"Scan Date: **{scan_date}**",
             "",
             f"## Summary\n- Total variables: **{total_vars}**\n- Files: **{total_files}**\n",
             "## Variables by File"
@@ -372,7 +375,7 @@ def generate_markdown(report, branch, existing_content=None):
         if new_vars:
             append_section = [
                 "\n## Newly Detected Variables \n",
-                f"Scan Date: **{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**"
+                f"Scan Date: **{scan_date}**"
             ]
             file_var_map = {}
             for file, vars_in_file in report.items():
