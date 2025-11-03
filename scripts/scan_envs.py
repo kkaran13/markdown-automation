@@ -369,12 +369,24 @@ def generate_markdown(report, branch, existing_content=None):
         )
 
         # 2️⃣ Append newly detected vars
+        # 2️⃣ Append newly detected vars
         if new_vars:
             append_section = [
                 "\n## Newly Detected Variables (Appended Automatically)\n",
             ]
-            for var in sorted(new_vars):
-                append_section.append(f"- `{var}`")
+            file_var_map = {}
+            for file, vars_in_file in report.items():
+                new_in_file = sorted(set(vars_in_file) & new_vars)
+                if new_in_file:
+                    file_var_map[file] = new_in_file
+
+            # Format output clearly grouped by file
+            for file in sorted(file_var_map.keys()):
+                append_section.append(f"**{file}**")  # bold filename for clarity
+                for var in file_var_map[file]:
+                    append_section.append(f"   - {var}")  # bullet & indent
+                append_section.append("")  # blank line between files
+
             updated_content = updated_content.strip() + "\n" + "\n".join(append_section) + "\n"
 
         output_path.write_text(updated_content)
