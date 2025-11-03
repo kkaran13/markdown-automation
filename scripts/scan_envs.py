@@ -333,7 +333,8 @@ def generate_markdown(report, branch, existing_content=None):
             f.write("no_update")
         return False
 
-    total_vars = len(all_current_vars)
+    # total_vars = len(all_current_vars)
+    total_vars = sum(len(vars) for vars in report.values())
     total_files = len(report)
 
     output_path = Path("DEPLOYMENT_DOCUMENT.md")
