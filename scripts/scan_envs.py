@@ -490,41 +490,41 @@ def generate_markdown(report, branch, existing_content=None):
 
     # If no existing content → create a new file from scratch
     if existing_content:
-    logger.info("Updating existing DEPLOYMENT_DOCUMENT.md")
+        logger.info("Updating existing DEPLOYMENT_DOCUMENT.md")
 
-    # Combine all old + new vars for correct count
-    combined_vars = existing_vars | all_current_vars
-    total_vars = len(combined_vars)
-    total_files = len(report)
+        # Combine all old + new vars for correct count
+        combined_vars = existing_vars | all_current_vars
+        total_vars = len(combined_vars)
+        total_files = len(report)
 
-    # Update the summary section
-    updated_content = re.sub(
-        r"-\s*Total variables:\s*\*\*\d+\*\*",
-        f"- Total variables: **{total_vars}**",
-        existing_content,
-        count=1,
-        flags=re.IGNORECASE
-    )
+        # Update the summary section
+        updated_content = re.sub(
+            r"-\s*Total variables:\s*\*\*\d+\*\*",
+            f"- Total variables: **{total_vars}**",
+            existing_content,
+            count=1,
+            flags=re.IGNORECASE
+        )
 
-    updated_content = re.sub(
-        r"-\s*Files:\s*\*\*\d+\*\*",
-        f"- Files: **{total_files}**",
-        updated_content,
-        count=1,
-        flags=re.IGNORECASE
-    )
+        updated_content = re.sub(
+            r"-\s*Files:\s*\*\*\d+\*\*",
+            f"- Files: **{total_files}**",
+            updated_content,
+            count=1,
+            flags=re.IGNORECASE
+        )
 
-    # Append new variables section
-    if new_vars:
-        append_section = [
-            "\n## Newly Detected Variables (Appended Automatically)\n",
-        ]
-        for var in sorted(new_vars):
-            append_section.append(f"- `{var}`")
-        updated_content = updated_content.strip() + "\n" + "\n".join(append_section) + "\n"
+        # Append new variables section
+        if new_vars:
+            append_section = [
+                "\n## Newly Detected Variables (Appended Automatically)\n",
+            ]
+            for var in sorted(new_vars):
+                append_section.append(f"- `{var}`")
+            updated_content = updated_content.strip() + "\n" + "\n".join(append_section) + "\n"
 
-    Path("DEPLOYMENT_DOCUMENT.md").write_text(updated_content)
-    logger.info("Appended new variables and updated total count in DEPLOYMENT_DOCUMENT.md")
+        Path("DEPLOYMENT_DOCUMENT.md").write_text(updated_content)
+        logger.info("Appended new variables and updated total count in DEPLOYMENT_DOCUMENT.md")
 
     # Create marker file
     with open("report_updated.txt", "w") as f:
