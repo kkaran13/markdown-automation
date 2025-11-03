@@ -313,9 +313,9 @@ def get_all_vars_from_report(report):
 
 def generate_markdown(report, branch, existing_content=None):
     """Generate markdown report from scan results, updating total variable count and appending new variables."""
-    
+
     if existing_content is not None and not existing_content.strip():
-    existing_content = None
+        existing_content = None
 
     repo_name = target_repo or "local-repository"
     all_current_vars = get_all_vars_from_report(report)
