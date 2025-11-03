@@ -381,7 +381,7 @@ def generate_markdown(report, branch, existing_content=None):
 
             # Format output clearly grouped by file
             for file in sorted(file_var_map.keys()):
-                append_section.append(f"**{file}**")  # bold filename for clarity
+                append_section.append(f"### {file}")  # bold filename for clarity
                 for var in file_var_map[file]:
                     append_section.append(f"- `{var}`")  # bullet & indent
                 append_section.append("")  # blank line between files
