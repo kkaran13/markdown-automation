@@ -1,6 +1,16 @@
 # Environment Variables Report
-Scanned Branch: **main**
+Repository: **local-repository**
+Branch: **main**
+Scan Date: **2025-11-03 11:48:15**
 
-## /home/runner/work/markdown-automation/markdown-automation/scripts/scan_envs.py
+## Summary
+- Total variables: **5**
+- Files: **1**
+
+## Variables by File
+### scripts\scan_envs.py
+- `GITHUB_TOKEN`
+- `SCAN_DIR`
 - `TARGET_BRANCH`
-- `main`
+- `TARGET_REPO`
+- `VAR`
