@@ -489,56 +489,42 @@ def generate_markdown(report, branch, existing_content=None):
     output_path = Path("DEPLOYMENT_DOCUMENT.md")
 
     # If no existing content → create a new file from scratch
-    if not existing_content:
-        md = [
-            "# Environment Variables Report",
-            f"Repository: **{repo_name}**",
-            f"Branch: **{branch}**",
-            f"Scan Date: **{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**",
-            "",
-            f"## Summary\n- Total variables: **{total_vars}**\n- Files: **{total_files}**\n",
-            "## Variables by File"
+    if existing_content:
+    logger.info("Updating existing DEPLOYMENT_DOCUMENT.md")
+
+    # Combine all old + new vars for correct count
+    combined_vars = existing_vars | all_current_vars
+    total_vars = len(combined_vars)
+    total_files = len(report)
+
+    # Update the summary section
+    updated_content = re.sub(
+        r"-\s*Total variables:\s*\*\*\d+\*\*",
+        f"- Total variables: **{total_vars}**",
+        existing_content,
+        count=1,
+        flags=re.IGNORECASE
+    )
+
+    updated_content = re.sub(
+        r"-\s*Files:\s*\*\*\d+\*\*",
+        f"- Files: **{total_files}**",
+        updated_content,
+        count=1,
+        flags=re.IGNORECASE
+    )
+
+    # Append new variables section
+    if new_vars:
+        append_section = [
+            "\n## Newly Detected Variables (Appended Automatically)\n",
         ]
-        for file in sorted(report.keys()):
-            md.append(f"### {file}")
-            for var in sorted(report[file]):
-                md.append(f"- `{var}`")
-            md.append("")
-        output_path.write_text("\n".join(md))
-        logger.info("Created new DEPLOYMENT_DOCUMENT.md")
-    else:
-        # Update existing content: refresh total variable count and append new vars
-        logger.info("Updating existing DEPLOYMENT_DOCUMENT.md")
+        for var in sorted(new_vars):
+            append_section.append(f"- `{var}`")
+        updated_content = updated_content.strip() + "\n" + "\n".join(append_section) + "\n"
 
-        # Update total variable count in summary using regex (safer with optional spaces)
-        updated_content = re.sub(
-            r"-\s*Total variables:\s*\*\*\d+\*\*",
-            f"- Total variables: **{total_vars}**",
-            existing_content,
-            count=1,
-            flags=re.IGNORECASE
-        )
-
-        # Update files count in summary if present
-        updated_content = re.sub(
-            r"-\s*Files:\s*\*\*\d+\*\*",
-            f"- Files: **{total_files}**",
-            updated_content,
-            count=1,
-            flags=re.IGNORECASE
-        )
-
-        # Append newly detected vars (if any)
-        if new_vars:
-            append_section = [
-                "\n## Newly Detected Variables (Appended Automatically)\n",
-            ]
-            for var in sorted(new_vars):
-                append_section.append(f"- `{var}`")
-            updated_content = updated_content.strip() + "\n" + "\n".join(append_section) + "\n"
-
-        output_path.write_text(updated_content)
-        logger.info("Appended new variables and updated total count in DEPLOYMENT_DOCUMENT.md")
+    Path("DEPLOYMENT_DOCUMENT.md").write_text(updated_content)
+    logger.info("Appended new variables and updated total count in DEPLOYMENT_DOCUMENT.md")
 
     # Create marker file
     with open("report_updated.txt", "w") as f:
