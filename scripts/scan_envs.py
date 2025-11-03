@@ -391,16 +391,86 @@ def get_all_vars_from_report(report):
 
     # return True
 
+# def generate_markdown(report, branch, existing_content=None):
+#     """Generate markdown report from scan results, updating total variable count and appending new variables."""
+#     repo_name = target_repo or "local-repository"
+#     all_current_vars = get_all_vars_from_report(report)
+    
+#     # Extract existing vars (if document already exists)
+#     existing_vars = set()
+#     if existing_content:
+#         existing_vars = extract_vars_from_md(existing_content)
+    
+#     new_vars = all_current_vars - existing_vars
+
+#     if not new_vars and existing_content:
+#         logger.info("No new environment variables found. Existing document is up to date.")
+#         with open("report_updated.txt", "w") as f:
+#             f.write("no_update")
+#         return False
+
+#     total_vars = len(all_current_vars)
+#     total_files = len(report)
+
+#     output_path = Path("DEPLOYMENT_DOCUMENT.md")
+
+#     # If no existing content → create a new file from scratch
+#     if not existing_content:
+#         md = [
+#             "# Environment Variables Report",
+#             f"Repository: **{repo_name}**",
+#             f"Branch: **{branch}**",
+#             f"Scan Date: **{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**",
+#             "",
+#             f"## Summary\n- Total variables: **{total_vars}**\n- Files: **{total_files}**\n",
+#             "## Variables by File"
+#         ]
+#         for file in sorted(report.keys()):
+#             md.append(f"### {file}")
+#             for var in sorted(report[file]):
+#                 md.append(f"- `{var}`")
+#             md.append("")
+#         output_path.write_text("\n".join(md))
+#         logger.info("Created new DEPLOYMENT_DOCUMENT.md")
+#     else:
+#         # Update existing content: refresh total variable count and append new vars
+#         logger.info("Updating existing DEPLOYMENT_DOCUMENT.md")
+
+#         # 1️⃣ Update total variable count in summary using regex
+#         updated_content = re.sub(
+#             r"- Total variables: \*\*\d+\*\*",
+#             f"- Total variables: **{total_vars}**",
+#             existing_content
+#         )
+
+#         # 2️⃣ Append newly detected vars
+#         if new_vars:
+#             append_section = [
+#                 "\n## Newly Detected Variables (Appended Automatically)\n",
+#             ]
+#             for var in sorted(new_vars):
+#                 append_section.append(f"- `{var}`")
+#             updated_content = updated_content.strip() + "\n" + "\n".join(append_section) + "\n"
+
+#         output_path.write_text(updated_content)
+#         logger.info("Appended new variables and updated total count in DEPLOYMENT_DOCUMENT.md")
+
+#     # Create marker file
+#     with open("report_updated.txt", "w") as f:
+#         f.write("updated")
+
+#     return True
+
 def generate_markdown(report, branch, existing_content=None):
     """Generate markdown report from scan results, updating total variable count and appending new variables."""
     repo_name = target_repo or "local-repository"
     all_current_vars = get_all_vars_from_report(report)
-    
+
     # Extract existing vars (if document already exists)
     existing_vars = set()
     if existing_content:
         existing_vars = extract_vars_from_md(existing_content)
-    
+
     new_vars = all_current_vars - existing_vars
 
     if not new_vars and existing_content:
@@ -409,9 +479,13 @@ def generate_markdown(report, branch, existing_content=None):
             f.write("no_update")
         return False
 
-    total_vars = len(all_current_vars)
-    total_files = len(report)
+    # When updating an existing doc, total_vars should reflect the union of existing + current
+    if existing_content:
+        total_vars = len(existing_vars | all_current_vars)
+    else:
+        total_vars = len(all_current_vars)
 
+    total_files = len(report)
     output_path = Path("DEPLOYMENT_DOCUMENT.md")
 
     # If no existing content → create a new file from scratch
@@ -436,14 +510,25 @@ def generate_markdown(report, branch, existing_content=None):
         # Update existing content: refresh total variable count and append new vars
         logger.info("Updating existing DEPLOYMENT_DOCUMENT.md")
 
-        # 1️⃣ Update total variable count in summary using regex
+        # Update total variable count in summary using regex (safer with optional spaces)
         updated_content = re.sub(
-            r"- Total variables: \*\*\d+\*\*",
+            r"-\s*Total variables:\s*\*\*\d+\*\*",
             f"- Total variables: **{total_vars}**",
-            existing_content
+            existing_content,
+            count=1,
+            flags=re.IGNORECASE
         )
 
-        # 2️⃣ Append newly detected vars
+        # Update files count in summary if present
+        updated_content = re.sub(
+            r"-\s*Files:\s*\*\*\d+\*\*",
+            f"- Files: **{total_files}**",
+            updated_content,
+            count=1,
+            flags=re.IGNORECASE
+        )
+
+        # Append newly detected vars (if any)
         if new_vars:
             append_section = [
                 "\n## Newly Detected Variables (Appended Automatically)\n",
